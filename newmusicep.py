@@ -1,11 +1,8 @@
-###There are multiple mutations and crossover, we can comment certain ones out, if they are bad.
-
-
-
-
 from deap import base, creator, tools
 import random
 import mido
+import subprocess
+import os
 
 NOTE_RANGE = range(48, 84)  
 DURATIONS = [120, 240, 480, 960]  # Added longer duration
@@ -201,6 +198,9 @@ toolbox.register("select", tools.selTournament, tournsize=4)
 
 # MIDI Output
 def individual_to_midi(individual, filename="output.mid"):
+    # Create directory if it doesn't exist
+    os.makedirs("midi_outputs", exist_ok=True)
+    
     mid = mido.MidiFile()
     track = mido.MidiTrack()
     mid.tracks.append(track)
@@ -213,7 +213,62 @@ def individual_to_midi(individual, filename="output.mid"):
         track.append(mido.Message('note_on', note=pitch, velocity=vel, time=0))
         track.append(mido.Message('note_off', note=pitch, velocity=vel, time=dur))
 
-    mid.save(f"midi_outputs/{filename}")
+    filepath = f"midi_outputs/{filename}"
+    mid.save(filepath)
+    return filepath
+
+# Audio conversion function
+def midi_to_audio(midi_file, output_file=None, soundfont=None):
+    """Convert MIDI to WAV using fluidsynth"""
+    if soundfont is None:
+        # Try common soundfont locations
+        possible_soundfonts = [
+            os.path.expanduser("~/soundfonts/FluidR3_GM.sf2"),
+            "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+            "/usr/local/share/soundfonts/default.sf2",
+        ]
+        soundfont = None
+        for sf in possible_soundfonts:
+            if os.path.exists(sf):
+                soundfont = sf
+                break
+        
+        if soundfont is None:
+            print("⚠ Warning: No soundfont found. Audio conversion skipped.")
+            print("  Download a soundfont:")
+            print("  mkdir -p ~/soundfonts")
+            print("  curl -L 'https://keymusician01.s3.amazonaws.com/FluidR3_GM.zip' -o ~/soundfonts/FluidR3_GM.zip")
+            print("  cd ~/soundfonts && unzip FluidR3_GM.zip")
+            return None
+    
+    if output_file is None:
+        output_file = midi_file.replace('.mid', '.wav').replace('midi_outputs', 'audio_outputs')
+    
+    # Create audio_outputs directory
+    os.makedirs("audio_outputs", exist_ok=True)
+    
+    try:
+        subprocess.run([
+            'fluidsynth',
+            '-ni',
+            soundfont,
+            midi_file,
+            '-F',
+            output_file,
+            '-r',
+            '44100'
+        ], check=True, capture_output=True, text=True)
+        print(f"  ✓ Audio: {output_file}")
+        return output_file
+    except FileNotFoundError:
+        print("⚠ Warning: fluidsynth not installed. Run: brew install fluidsynth")
+        return None
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Error converting MIDI: {e.stderr}")
+        return None
+    except Exception as e:
+        print(f"✗ Error converting MIDI: {e}")
+        return None
 
 if __name__ == "__main__":
     random.seed(42)  # For reproducibility
@@ -224,6 +279,7 @@ if __name__ == "__main__":
     MUTPB = 0.3  # Mutation probability
     
     print("Starting evolution...")
+    print("=" * 60)
     
     # Evaluate initial population
     fitnesses = map(toolbox.evaluate, population)
@@ -262,17 +318,43 @@ if __name__ == "__main__":
         best_gen = tools.selBest(population, 1)[0]
         
         if (gen + 1) % 10 == 0:
-            individual_to_midi(best_gen, filename=f"best_gen_{gen+1}.mid")
-            print(f"Gen {gen+1}: Best={best_gen.fitness.values[0]:.4f}, "
-                  f"Avg={sum(fits)/len(fits):.4f}, Min={min(fits):.4f}")
+            print(f"\nGeneration {gen+1}:")
+            print(f"  Best Fitness:  {best_gen.fitness.values[0]:.4f}")
+            print(f"  Avg Fitness:   {sum(fits)/len(fits):.4f}")
+            print(f"  Min Fitness:   {min(fits):.4f}")
+            
+            # Save MIDI
+            midi_file = individual_to_midi(best_gen, filename=f"best_gen_{gen+1}.mid")
+            print(f"  ✓ MIDI: {midi_file}")
+            
+            # Convert to audio
+            midi_to_audio(midi_file)
 
+    print("\n" + "=" * 60)
+    print("Evolution complete!")
+    print("=" * 60)
+    
     # Final best individual
     top_ind = tools.selBest(population, 1)[0]
     print(f"\nFinal best fitness: {top_ind.fitness.values[0]:.4f}")
-    individual_to_midi(top_ind, filename="best_individual.mid")
+    
+    midi_file = individual_to_midi(top_ind, filename="best_individual.mid")
+    print(f"✓ Best MIDI: {midi_file}")
+    midi_to_audio(midi_file)
     
     # Save top 5 individuals
+    print("\nSaving top 5 individuals...")
     top_5 = tools.selBest(population, 5)
     for i, ind in enumerate(top_5):
-        individual_to_midi(ind, filename=f"top_{i+1}.mid")
-        print(f"Top {i+1} fitness: {ind.fitness.values[0]:.4f}")
+        midi_file = individual_to_midi(ind, filename=f"top_{i+1}.mid")
+        print(f"  Top {i+1} (fitness {ind.fitness.values[0]:.4f}): {midi_file}")
+        midi_to_audio(midi_file)
+    
+    print("\n" + "=" * 60)
+    print("All files saved!")
+    print("  MIDI files: midi_outputs/")
+    print("  Audio files: audio_outputs/")
+    print("=" * 60)
+    print("\nTo play audio files, run:")
+    print("  open audio_outputs/best_individual.wav")
+    print("Or just double-click the WAV files in Finder!")
