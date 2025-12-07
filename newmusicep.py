@@ -1,3 +1,8 @@
+###There are multiple mutations and crossover, we can comment certain ones out, if they are bad.
+
+
+
+
 from deap import base, creator, tools
 import random
 import mido
@@ -5,7 +10,7 @@ import mido
 NOTE_RANGE = range(48, 84)  
 DURATIONS = [120, 240, 480, 960]  # Added longer duration
 VELOCITY = 64
-INDIVIDUAL_LENGTH = 64  # Increased from 16
+INDIVIDUAL_LENGTH = 64  # Maybe could increase to 128 for longer songs. 
 
 KEY_NOTES = {48, 50, 52, 53, 55, 57, 59, 
              60, 62, 64, 65, 67, 69, 71, 
